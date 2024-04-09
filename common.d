@@ -1,12 +1,27 @@
 module common;
 
 import std.bitmanip;
+import std.conv : to;
 
 import ae.utils.meta : enumLength;
 
 enum maxCharacters = 4;
 enum maxWidth = 32;
 enum maxHeight = 32;
+enum maxBlockSize = 16; // actually 11 but this makes the math easier
+
+enum Direction : ubyte
+{
+	right,
+	up,
+	left,
+	down,
+}
+
+Direction opposite(Direction d) { return cast(Direction)((d + 2) % 4); }
+
+immutable byte[enumLength!Direction] dirX = [1, 0, -1, 0];
+immutable byte[enumLength!Direction] dirY = [0, -1, 0, 1];
 
 // TODO: I think both of these can be packed to one byte each:
 // - VarName can be packed by exploiting that levels have at most about 64 non-wall tiles.
@@ -30,45 +45,17 @@ enum VarName : uint
 VarName varNameCharacterCoord(uint characterIndex) { return cast(VarName)(VarName.character0Coord + characterIndex); }
 VarName varNameCell(size_t x, size_t y) { return cast(VarName)(VarName.cell00 + y * maxWidth + x); }
 
-alias VarValue = uint;
+alias VarValue = ubyte;
 
-mixin template VarValueCommon()
+enum invalidVarValue = VarValue.max;
+
+struct CharacterCoord
 {
-	static assert(typeof(this).sizeof == VarValue.sizeof);
-
-	this(VarValue v) { this = *cast(typeof(this)*)&v; }
-
-	@property VarValue asVarValue() { return *cast(VarValue*)&this; }
-	alias asVarValue this;
-}
-
-struct VarValueCharacterCoord
-{
-	mixin VarValueCommon;
-
-align(1):
 	ubyte x, y;
-	ubyte[2] _padding;
 }
 
-enum Direction : ubyte
+struct Cell
 {
-	right,
-	up,
-	left,
-	down,
-}
-
-Direction opposite(Direction d) { return cast(Direction)((d + 2) % 4); }
-
-immutable byte[enumLength!Direction] dirX = [1, 0, -1, 0];
-immutable byte[enumLength!Direction] dirY = [0, -1, 0, 1];
-
-struct VarValueCell
-{
-	mixin VarValueCommon;
-
-align(1):
 	enum Type : ubyte
 	{
 		empty,
@@ -119,9 +106,69 @@ enum Tile : ubyte
 struct Level
 {
 	size_t w, h;
-	Tile[][] map;
-
-	VarValue[VarName.length] initialState;
+	Tile[maxWidth][maxHeight] map;
 
 	ubyte numCharacters;
+
+	VarValue[VarName.length] initialState = invalidVarValue;
+
+	// ---
+
+	T decode(T)(VarValue v) const
+	{
+		assert(v != invalidVarValue, "Invalid variable value");
+		return valuesFor!T[v];
+	}
+
+	VarValue encode(T)(T v) const
+	{
+		auto vv = getSlot(v);
+		assert(vv != invalidVarValue, "Unrepresentable value");
+		return vv;
+	}
+
+	VarValue register(T)(T v)
+	{
+		VarValue vv = valuesFor!T.length.to!VarValue;
+		valuesFor!T ~= v;
+		auto slot = &getSlot(v);
+		assert(*slot == invalidVarValue, "Duplicate VarValue");
+		*slot = vv;
+		return vv;
+	}
+
+	// ---
+
+	CharacterCoord[/*VarValue*/] characterCoordValues;
+	VarValue[maxWidth][maxHeight] characterCoordLookup = invalidVarValue;
+
+	ref inout(T[]) valuesFor(T)() inout
+	if (is(T == CharacterCoord))
+	{ return characterCoordValues; }
+
+	ref inout(VarValue) getSlot(CharacterCoord v) inout
+	{ return characterCoordLookup[v.y][v.x]; }
+
+	// ---
+
+	Cell[/*VarValue*/] cellValues;
+	VarValue[2] cellEmptyLookup = invalidVarValue;
+	VarValue[maxBlockSize][maxBlockSize][maxBlockSize][maxBlockSize][2] cellBlockLookup = invalidVarValue;
+	VarValue[enumLength!Direction][1 << enumLength!Direction][2] cellTurnstileLookup = invalidVarValue;
+	VarValue cellCharacterLookup = invalidVarValue;
+
+	ref inout(T[]) valuesFor(T)() inout
+	if (is(T == Cell))
+	{ return cellValues; }
+
+	ref inout(VarValue) getSlot(Cell v) inout @nogc
+	{
+		final switch (v.type)
+		{
+			case Cell.Type.empty: return cellEmptyLookup[v.hole];
+			case Cell.Type.block: return cellBlockLookup[v.hole][v.block.w][v.block.h][v.block.x][v.block.y];
+			case Cell.Type.turnstile: return cellTurnstileLookup[v.hole][v.turnstile.haveDirection][v.turnstile.thisDirection];
+			case Cell.Type.character: assert(!v.hole); return cellCharacterLookup;
+		}
+	}
 }

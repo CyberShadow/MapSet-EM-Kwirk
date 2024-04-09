@@ -90,7 +90,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 			if (level.numCharacters > 2)
 				v[VarName.justSwitched] = false;
 
-			auto p = v[VarName.character0Coord].resolve().VarValueCharacterCoord;
+			auto p = level.decode!CharacterCoord(v[VarName.character0Coord].resolve());
 			auto n = p;
 			const d = cast(Direction)((action - Action.right) + Direction.right);
 			n.x += dirX[d];
@@ -100,7 +100,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 			final switch (tile)
 			{
 				case Tile.exit:
-					v[varNameCell(p.x, p.y)] = VarValueCell(VarValueCell.Type.empty);
+					v[varNameCell(p.x, p.y)] = level.encode(Cell(Cell.Type.empty));
 
 					ubyte c = 1;
 					for (; c <= level.numCharacters; c++)
@@ -116,7 +116,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 						v[varNameCharacterCoord(c - 1)] = ccCoord;
 					}
 
-					v[varNameCharacterCoord(c - 1)] = VarValueCharacterCoord.init;
+					v[varNameCharacterCoord(c - 1)] = level.encode(CharacterCoord.init);
 
 					if (c == 1)
 					{
@@ -132,7 +132,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 					return performImpossible;
 
 				case Tile.free:
-					const cell = v[varNameCell(n.x, n.y)].resolve().VarValueCell;
+					const cell = level.decode!Cell(v[varNameCell(n.x, n.y)].resolve());
 
 					// If there is a hole, we cannot step into it,
 					// no matter what else is here.
@@ -141,13 +141,13 @@ int perform(ref const Level level, ref Vars v, Action action)
 
 					final switch (cell.type)
 					{
-						case VarValueCell.Type.empty:
-							v[VarName.character0Coord] = n;
-							v[varNameCell(p.x, p.y)] = VarValueCell(VarValueCell.Type.empty);
-							v[varNameCell(n.x, n.y)] = VarValueCell(VarValueCell.Type.character);
+						case Cell.Type.empty:
+							v[VarName.character0Coord] = level.encode(n);
+							v[varNameCell(p.x, p.y)] = level.encode(Cell(Cell.Type.empty));
+							v[varNameCell(n.x, n.y)] = level.encode(Cell(Cell.Type.character));
 							return delayMove;
 
-						case VarValueCell.Type.block:
+						case Cell.Type.block:
 							// Original block coords
 							auto ox0 = n.x - cell.block.x;
 							auto oy0 = n.y - cell.block.y;
@@ -185,14 +185,14 @@ int perform(ref const Level level, ref Vars v, Action action)
 									if (!inOld) // in new but not old, i.e. the area that will be newly occupied
 									{
 										auto ok = v[varNameCell(x, y)].map((v) {
-											auto c = v.VarValueCell;
+											auto c = level.decode!Cell(v);
 											final switch (c.type)
 											{
-												case VarValueCell.Type.empty:
+												case Cell.Type.empty:
 													return true; // regardless of hole
-												case VarValueCell.Type.block:
-												case VarValueCell.Type.turnstile:
-												case VarValueCell.Type.character:
+												case Cell.Type.block:
+												case Cell.Type.turnstile:
+												case Cell.Type.character:
 													return false;
 											}
 										}).resolve();
@@ -205,7 +205,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 							auto fillable = {
 								foreach (y; ny0 .. ny1)
 									foreach (x; nx0 .. nx1)
-										if (!level.initialState[varNameCell(x, y)].VarValueCell.hole)
+										if (!level.decode!Cell(level.initialState[varNameCell(x, y)]).hole)
 										{
 											// There was never, and thus can never be, a hole here.
 											return false;
@@ -217,7 +217,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 							fillable = fillable && {
 								foreach (y; ny0 .. ny1)
 									foreach (x; nx0 .. nx1)
-										if (!v[varNameCell(x, y)].resolve().VarValueCell.hole)
+										if (!level.decode!Cell(v[varNameCell(x, y)].resolve()).hole)
 										{
 											// There was a hole here once, but not right now.
 											return false;
@@ -230,23 +230,23 @@ int perform(ref const Level level, ref Vars v, Action action)
 								{
 									auto inOld = x >= ox0 && x < ox1 && y >= oy0 && y < oy1;
 									auto inNew = x >= nx0 && x < nx1 && y >= ny0 && y < ny1;
-									auto c = v[varNameCell(x, y)].resolve().VarValueCell;
+									auto c = level.decode!Cell(v[varNameCell(x, y)].resolve());
 									if (inOld)
-										assert(c.type == VarValueCell.Type.block);
+										assert(c.type == Cell.Type.block);
 									if (inNew)
 									{
 										if (fillable)
 										{
 											// Fill it - clear type and hole
-											c.type = VarValueCell.Type.empty;
-											c.empty = VarValueCell.Empty.init; // Clear vestigial state
+											c.type = Cell.Type.empty;
+											c.empty = Cell.Empty.init; // Clear vestigial state
 											assert(c.hole);
 											c.hole = false;
 										}
 										else
 										{
 											// Just move it
-											c.type = VarValueCell.Type.block;
+											c.type = Cell.Type.block;
 											c.block.w = cell.block.w;
 											c.block.h = cell.block.h;
 											c.block.x = cast(ubyte)(x - nx0);
@@ -257,19 +257,19 @@ int perform(ref const Level level, ref Vars v, Action action)
 									if (inOld)
 									{
 										// Clear only type (leaving hole)
-										c.type = VarValueCell.Type.empty;
-										c.empty = VarValueCell.Empty.init; // Clear vestigial state
+										c.type = Cell.Type.empty;
+										c.empty = Cell.Empty.init; // Clear vestigial state
 									}
-									v[varNameCell(x, y)] = c;
+									v[varNameCell(x, y)] = level.encode(c);
 								}
 
 							// The way forward is now clear.
-							v[VarName.character0Coord] = n;
-							v[varNameCell(p.x, p.y)] = VarValueCell(VarValueCell.Type.empty);
-							v[varNameCell(n.x, n.y)] = VarValueCell(VarValueCell.Type.character);
+							v[VarName.character0Coord] = level.encode(n);
+							v[varNameCell(p.x, p.y)] = level.encode(Cell(Cell.Type.empty));
+							v[varNameCell(n.x, n.y)] = level.encode(Cell(Cell.Type.character));
 							return delayPush;
 
-						case VarValueCell.Type.turnstile:
+						case Cell.Type.turnstile:
 							auto ourWingDir = cell.turnstile.thisDirection;
 							auto cx = n.x + dirX[ourWingDir.opposite];
 							auto cy = n.y + dirY[ourWingDir.opposite];
@@ -354,8 +354,8 @@ int perform(ref const Level level, ref Vars v, Action action)
 													// Our wing is there right now. Therefore, nothing else can be.
 													debug
 													{
-														auto c = v[varNameCell(x, y)].resolve().VarValueCell;
-														assert(c.type == VarValueCell.Type.turnstile
+														auto c = level.decode!Cell(v[varNameCell(x, y)].resolve());
+														assert(c.type == Cell.Type.turnstile
 															&& c.turnstile.thisDirection == relDir
 															&& c.turnstile.haveDirection == cell.turnstile.haveDirection);
 													}
@@ -364,15 +364,15 @@ int perform(ref const Level level, ref Vars v, Action action)
 											}
 
 											return v[varNameCell(x, y)].map((v) {
-												auto c = v.VarValueCell;
+												auto c = level.decode!Cell(v);
 												final switch (c.type)
 												{
-													case VarValueCell.Type.empty:
+													case Cell.Type.empty:
 														return true; // regardless of hole
-													case VarValueCell.Type.block:
-													case VarValueCell.Type.character:
+													case Cell.Type.block:
+													case Cell.Type.character:
 														return false;
-													case VarValueCell.Type.turnstile:
+													case Cell.Type.turnstile:
 														auto otherWingDir = c.turnstile.thisDirection;
 														auto cx2 = x + dirX[otherWingDir.opposite];
 														auto cy2 = y + dirY[otherWingDir.opposite];
@@ -394,8 +394,8 @@ int perform(ref const Level level, ref Vars v, Action action)
 								{
 									n.x += dirX[d];
 									n.y += dirY[d];
-									auto targetCell = v[varNameCell(n.x, n.y)].resolve().VarValueCell;
-									assert(targetCell.type == VarValueCell.Type.empty);
+									auto targetCell = level.decode!Cell(v[varNameCell(n.x, n.y)].resolve());
+									assert(targetCell.type == Cell.Type.empty);
 									if (targetCell.hole)
 										return performImpossible;
 								}
@@ -422,41 +422,48 @@ int perform(ref const Level level, ref Vars v, Action action)
 									auto sourceDir = (targetDir - spin + enumLength!Direction) % enumLength!Direction;
 									auto x = cx + dirX[targetDir];
 									auto y = cy + dirY[targetDir];
-									auto c = v[varNameCell(x, y)].resolve().VarValueCell;
-
-									// Sanity check - there was a wing here iff it's in our flags.
-									assert(
-										!!(cell.turnstile.haveDirection & (1 << targetDir))
-										==
-										(c.type == VarValueCell.Type.turnstile
-											&& c.turnstile.thisDirection == targetDir)
-									);
-
-									if (cell.turnstile.haveDirection & (1 << sourceDir))
+									if (level.map[y][x] == Tile.free)
 									{
-										// A wing will be here. Configure it, regardless if a wing *was* here.
-										c.type = VarValueCell.Type.turnstile;
-										c.turnstile.thisDirection = targetDir;
-										c.turnstile.haveDirection = newHaveDirection;
+										auto c = level.decode!Cell(v[varNameCell(x, y)].resolve());
+
+										// Sanity check - there was a wing here iff it's in our flags.
+										assert(
+											!!(cell.turnstile.haveDirection & (1 << targetDir))
+											==
+											(c.type == Cell.Type.turnstile
+												&& c.turnstile.thisDirection == targetDir)
+										);
+
+										if (cell.turnstile.haveDirection & (1 << sourceDir))
+										{
+											// A wing will be here. Configure it, regardless if a wing *was* here.
+											c.type = Cell.Type.turnstile;
+											c.turnstile.thisDirection = targetDir;
+											c.turnstile.haveDirection = newHaveDirection;
+										}
+										else
+										if (cell.turnstile.haveDirection & (1 << targetDir))
+										{
+											// A wing was here, and now won't. Clear it.
+											c.type = Cell.Type.empty;
+											c.empty = Cell.Empty.init; // Clear vestigial state
+										}
+										v[varNameCell(x, y)] = level.encode(c);
 									}
 									else
-									if (cell.turnstile.haveDirection & (1 << targetDir))
 									{
-										// A wing was here, and now won't. Clear it.
-										c.type = VarValueCell.Type.empty;
-										c.empty = VarValueCell.Empty.init; // Clear vestigial state
+										assert(!(cell.turnstile.haveDirection & (1 << sourceDir)));
 									}
-									v[varNameCell(x, y)] = c;
 								}
 							}
 
 							// Move the character.
-							v[VarName.character0Coord] = n;
-							v[varNameCell(p.x, p.y)] = VarValueCell(VarValueCell.Type.empty);
-							v[varNameCell(n.x, n.y)] = VarValueCell(VarValueCell.Type.character);
+							v[VarName.character0Coord] = level.encode(n);
+							v[varNameCell(p.x, p.y)] = level.encode(Cell(Cell.Type.empty));
+							v[varNameCell(n.x, n.y)] = level.encode(Cell(Cell.Type.character));
 							return delayRotate;
 
-						case VarValueCell.Type.character:
+						case Cell.Type.character:
 							return performImpossible;
 					}
 			}
@@ -485,29 +492,29 @@ void dump(ref const Level level, ref Visitor v)
 					break;
 
 				case Tile.free:
-					auto cell = v.get(varNameCell(x, y)).VarValueCell;
+					auto cell = level.decode!Cell(v.get(varNameCell(x, y)));
 					final switch (cell.type)
 					{
-						case VarValueCell.Type.empty:
+						case Cell.Type.empty:
 							if (cell.hole)
 								write('O');
 							else
 								write(' ');
 							break;
 
-						case VarValueCell.Type.block:
+						case Cell.Type.block:
 							write(cast(char)('a' + ((x - cell.block.x) + (y - cell.block.y)) % 26));
 							break;
 
-						case VarValueCell.Type.turnstile:
+						case Cell.Type.turnstile:
 							write(">^<`"[cell.turnstile.thisDirection]);
 							break;
 
-						case VarValueCell.Type.character:
+						case Cell.Type.character:
 							char c = '?';
 							foreach (i; 0 .. level.numCharacters)
 							{
-								auto coord = v.get(varNameCharacterCoord(i)).VarValueCharacterCoord;
+								auto coord = level.decode!CharacterCoord(v.get(varNameCharacterCoord(i)));
 								if (coord.x == x && coord.y == y)
 									c = cast(char)('1' + i);
 							}
