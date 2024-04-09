@@ -20,7 +20,7 @@ enum VarName : uint
 
 	character0Coord,
 
-	cell00 = maxCharacters,
+	cell00 = character0Coord + maxCharacters,
 
 	tempVarStart = cell00 + (maxWidth * maxHeight),
 	tempVarEnd = tempVarStart + 100,
