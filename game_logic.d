@@ -45,7 +45,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 				return performImpossible;
 			else
 			{
-				auto c0coord_ = v[VarName.character0Coord];
+				auto c0coord_ = v[level.varNameCharacterCoord[0]];
 				auto c0coord = c0coord_;
 
 				ubyte c = 1;
@@ -54,18 +54,18 @@ int perform(ref const Level level, ref Vars v, Action action)
 					if (c == level.numCharacters)
 						break;
 
-					auto ccCoord = v[varNameCharacterCoord(c)];
+					auto ccCoord = v[level.varNameCharacterCoord[c]];
 					auto isPresent = !!ccCoord.map(v => v != 0).resolve();
 					if (!isPresent)
 						break;
 
-					v[varNameCharacterCoord(c - 1)] = ccCoord;
+					v[level.varNameCharacterCoord[c - 1]] = ccCoord;
 				}
 
 				if (c == 1)
 					return performImpossible; // Just one character left, no one to switch to.
 
-				v[varNameCharacterCoord(c - 1)] = c0coord;
+				v[level.varNameCharacterCoord[c - 1]] = c0coord;
 
 				bool justSwitched;
 				if (level.numCharacters == 2)
@@ -76,8 +76,8 @@ int perform(ref const Level level, ref Vars v, Action action)
 				}
 				else
 				{
-					justSwitched = !!v[VarName.justSwitched].resolve();
-					v[VarName.justSwitched] = true;
+					justSwitched = !!v[level.varNameJustSwitched].resolve();
+					v[level.varNameJustSwitched] = true;
 				}
 
 				return justSwitched ? delaySwitchAgain : delaySwitch;
@@ -88,9 +88,11 @@ int perform(ref const Level level, ref Vars v, Action action)
 		case Action.left:
 		case Action.down:
 			if (level.numCharacters > 2)
-				v[VarName.justSwitched] = false;
+				v[level.varNameJustSwitched] = false;
 
-			auto p = level.decode!CharacterCoord(v[VarName.character0Coord].resolve());
+			auto p = level.decode!CharacterCoord(v[level.varNameCharacterCoord[0]].resolve());
+			assert(p.x > 0 && p.x + 1 < level.w && p.y > 0 && p.y + 1 < level.h);
+
 			auto n = p;
 			const d = cast(Direction)((action - Action.right) + Direction.right);
 			n.x += dirX[d];
@@ -100,7 +102,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 			final switch (tile)
 			{
 				case Tile.exit:
-					v[varNameCell(p.x, p.y)] = level.encode(Cell(Cell.Type.empty));
+					v[level.varNameCell[p.y][p.x]] = level.encode(Cell(Cell.Type.empty));
 
 					ubyte c = 1;
 					for (; c <= level.numCharacters; c++)
@@ -108,15 +110,15 @@ int perform(ref const Level level, ref Vars v, Action action)
 						if (c == level.numCharacters)
 							break;
 
-						auto ccCoord = v[varNameCharacterCoord(c)];
+						auto ccCoord = v[level.varNameCharacterCoord[c]];
 						auto isPresent = !!ccCoord.map(v => v != 0).resolve();
 						if (!isPresent)
 							break;
 
-						v[varNameCharacterCoord(c - 1)] = ccCoord;
+						v[level.varNameCharacterCoord[c - 1]] = ccCoord;
 					}
 
-					v[varNameCharacterCoord(c - 1)] = level.encode(CharacterCoord.init);
+					v[level.varNameCharacterCoord[c - 1]] = level.encode(CharacterCoord.init);
 
 					if (c == 1)
 					{
@@ -132,7 +134,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 					return performImpossible;
 
 				case Tile.free:
-					const cell = level.decode!Cell(v[varNameCell(n.x, n.y)].resolve());
+					const cell = level.decode!Cell(v[level.varNameCell[n.y][n.x]].resolve());
 
 					// If there is a hole, we cannot step into it,
 					// no matter what else is here.
@@ -142,9 +144,9 @@ int perform(ref const Level level, ref Vars v, Action action)
 					final switch (cell.type)
 					{
 						case Cell.Type.empty:
-							v[VarName.character0Coord] = level.encode(n);
-							v[varNameCell(p.x, p.y)] = level.encode(Cell(Cell.Type.empty));
-							v[varNameCell(n.x, n.y)] = level.encode(Cell(Cell.Type.character));
+							v[level.varNameCharacterCoord[0]] = level.encode(n);
+							v[level.varNameCell[p.y][p.x]] = level.encode(Cell(Cell.Type.empty));
+							v[level.varNameCell[n.y][n.x]] = level.encode(Cell(Cell.Type.character));
 							return delayMove;
 
 						case Cell.Type.block:
@@ -184,7 +186,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 									auto inOld = x >= ox0 && x < ox1 && y >= oy0 && y < oy1;
 									if (!inOld) // in new but not old, i.e. the area that will be newly occupied
 									{
-										auto ok = v[varNameCell(x, y)].map((v) {
+										auto ok = v[level.varNameCell[y][x]].map((v) {
 											auto c = level.decode!Cell(v);
 											final switch (c.type)
 											{
@@ -205,7 +207,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 							auto fillable = {
 								foreach (y; ny0 .. ny1)
 									foreach (x; nx0 .. nx1)
-										if (!level.decode!Cell(level.initialState[varNameCell(x, y)]).hole)
+										if (!level.decode!Cell(level.initialState[level.varNameCell[y][x]]).hole)
 										{
 											// There was never, and thus can never be, a hole here.
 											return false;
@@ -217,7 +219,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 							fillable = fillable && {
 								foreach (y; ny0 .. ny1)
 									foreach (x; nx0 .. nx1)
-										if (!level.decode!Cell(v[varNameCell(x, y)].resolve()).hole)
+										if (!level.decode!Cell(v[level.varNameCell[y][x]].resolve()).hole)
 										{
 											// There was a hole here once, but not right now.
 											return false;
@@ -230,7 +232,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 								{
 									auto inOld = x >= ox0 && x < ox1 && y >= oy0 && y < oy1;
 									auto inNew = x >= nx0 && x < nx1 && y >= ny0 && y < ny1;
-									auto c = level.decode!Cell(v[varNameCell(x, y)].resolve());
+									auto c = level.decode!Cell(v[level.varNameCell[y][x]].resolve());
 									if (inOld)
 										assert(c.type == Cell.Type.block);
 									if (inNew)
@@ -260,13 +262,13 @@ int perform(ref const Level level, ref Vars v, Action action)
 										c.type = Cell.Type.empty;
 										c.empty = Cell.Empty.init; // Clear vestigial state
 									}
-									v[varNameCell(x, y)] = level.encode(c);
+									v[level.varNameCell[y][x]] = level.encode(c);
 								}
 
 							// The way forward is now clear.
-							v[VarName.character0Coord] = level.encode(n);
-							v[varNameCell(p.x, p.y)] = level.encode(Cell(Cell.Type.empty));
-							v[varNameCell(n.x, n.y)] = level.encode(Cell(Cell.Type.character));
+							v[level.varNameCharacterCoord[0]] = level.encode(n);
+							v[level.varNameCell[p.y][p.x]] = level.encode(Cell(Cell.Type.empty));
+							v[level.varNameCell[n.y][n.x]] = level.encode(Cell(Cell.Type.character));
 							return delayPush;
 
 						case Cell.Type.turnstile:
@@ -354,7 +356,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 													// Our wing is there right now. Therefore, nothing else can be.
 													debug
 													{
-														auto c = level.decode!Cell(v[varNameCell(x, y)].resolve());
+														auto c = level.decode!Cell(v[level.varNameCell[y][x]].resolve());
 														assert(c.type == Cell.Type.turnstile
 															&& c.turnstile.thisDirection == relDir
 															&& c.turnstile.haveDirection == cell.turnstile.haveDirection);
@@ -363,7 +365,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 												}
 											}
 
-											return v[varNameCell(x, y)].map((v) {
+											return v[level.varNameCell[y][x]].map((v) {
 												auto c = level.decode!Cell(v);
 												final switch (c.type)
 												{
@@ -394,7 +396,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 								{
 									n.x += dirX[d];
 									n.y += dirY[d];
-									auto targetCell = level.decode!Cell(v[varNameCell(n.x, n.y)].resolve());
+									auto targetCell = level.decode!Cell(v[level.varNameCell[n.y][n.x]].resolve());
 									assert(targetCell.type == Cell.Type.empty);
 									if (targetCell.hole)
 										return performImpossible;
@@ -424,7 +426,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 									auto y = cy + dirY[targetDir];
 									if (level.map[y][x] == Tile.free)
 									{
-										auto c = level.decode!Cell(v[varNameCell(x, y)].resolve());
+										auto c = level.decode!Cell(v[level.varNameCell[y][x]].resolve());
 
 										// Sanity check - there was a wing here iff it's in our flags.
 										assert(
@@ -448,7 +450,7 @@ int perform(ref const Level level, ref Vars v, Action action)
 											c.type = Cell.Type.empty;
 											c.empty = Cell.Empty.init; // Clear vestigial state
 										}
-										v[varNameCell(x, y)] = level.encode(c);
+										v[level.varNameCell[y][x]] = level.encode(c);
 									}
 									else
 									{
@@ -458,9 +460,9 @@ int perform(ref const Level level, ref Vars v, Action action)
 							}
 
 							// Move the character.
-							v[VarName.character0Coord] = level.encode(n);
-							v[varNameCell(p.x, p.y)] = level.encode(Cell(Cell.Type.empty));
-							v[varNameCell(n.x, n.y)] = level.encode(Cell(Cell.Type.character));
+							v[level.varNameCharacterCoord[0]] = level.encode(n);
+							v[level.varNameCell[p.y][p.x]] = level.encode(Cell(Cell.Type.empty));
+							v[level.varNameCell[n.y][n.x]] = level.encode(Cell(Cell.Type.character));
 							return delayRotate;
 
 						case Cell.Type.character:
@@ -492,7 +494,7 @@ void dump(ref const Level level, ref Visitor v)
 					break;
 
 				case Tile.free:
-					auto cell = level.decode!Cell(v.get(varNameCell(x, y)));
+					auto cell = level.decode!Cell(v.get(level.varNameCell[y][x]));
 					final switch (cell.type)
 					{
 						case Cell.Type.empty:
@@ -514,7 +516,7 @@ void dump(ref const Level level, ref Visitor v)
 							char c = '?';
 							foreach (i; 0 .. level.numCharacters)
 							{
-								auto coord = level.decode!CharacterCoord(v.get(varNameCharacterCoord(i)));
+								auto coord = level.decode!CharacterCoord(v.get(level.varNameCharacterCoord[i]));
 								if (coord.x == x && coord.y == y)
 									c = cast(char)('1' + i);
 							}

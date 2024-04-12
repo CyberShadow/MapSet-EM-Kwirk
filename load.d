@@ -52,7 +52,7 @@ Level loadLevel(string fileName)
 	bool[ubyte] haveTurnstile;
 	bool haveHoles;
 
-	// Collection
+	// Collect data
 
 	foreach (y, line; levelLines)
 		foreach (x, c; line)
@@ -164,18 +164,28 @@ Level loadLevel(string fileName)
 					throw new Exception(format("Unknown character in level: %s", c));
 			}
 
-	// Compilation
+	// Register variable names
 
-	auto nullCoord = level.register(CharacterCoord.init);
+	if (level.numCharacters > 2)
+		level.varNameJustSwitched = level.registerVariable();
+
+	foreach (character; 0 .. level.numCharacters)
+		level.varNameCharacterCoord[character] = level.registerVariable();
+
+	foreach (y; 0 .. level.h)
+		foreach (x; 0 .. level.w)
+			if (!cells[y][x].isNull)
+				level.varNameCell[y][x] = level.registerVariable();
+
+	// Register values
+
+	auto nullCoord = level.register(CharacterCoord.init); // Used for exited characters
 	assert(nullCoord == 0);
 
 	foreach (y; 0 .. level.h)
 		foreach (x; 0 .. level.w)
 			if (!cells[y][x].isNull)
 				level.register(CharacterCoord(x.to!ubyte, y.to!ubyte));
-
-	foreach (character; 0 .. level.numCharacters)
-		level.initialState[varNameCharacterCoord(character)] = level.encode(characterStartingCoordinates[character]);
 
 	auto holes = haveHoles ? [false, true] : [false];
 
@@ -223,25 +233,37 @@ Level loadLevel(string fileName)
 		level.register(cell);
 	}
 
-	// Application
+	// Create initial state
+
+	level.initialState.length = level.numVars;
+	level.initialState[] = invalidVarValue;
+
+	if (level.numCharacters > 2)
+		level.initialState[level.varNameJustSwitched] = false;
+
+	foreach (character; 0 .. level.numCharacters)
+		level.initialState[level.varNameCharacterCoord[character]] = level.encode(characterStartingCoordinates[character]);
 
 	foreach (y; 0 .. level.h)
 		foreach (x; 0 .. level.w)
 			if (!cells[y][x].isNull)
-				level.initialState[varNameCell(x, y)] = level.encode(cells[y][x].get());
+				level.initialState[level.varNameCell[y][x]] = level.encode(cells[y][x].get());
 
-	// Validation
+	// Validate
+
+	foreach (value; level.initialState)
+		assert(value != invalidVarValue, "Uninitialized variable");
 
 	foreach (y; 0 .. level.h)
 		foreach (x; 0 .. level.w)
 			switch (level.map[y][x])
 			{
 				case Tile.wall:
-					enforce(level.initialState[varNameCell(x, y)] == invalidVarValue);
+					enforce(level.varNameCell[y][x] == invalidVarName);
 					break;
 
 				case Tile.turnstileCenter:
-					enforce(level.initialState[varNameCell(x, y)] == invalidVarValue);
+					enforce(level.varNameCell[y][x] == invalidVarName);
 
 					auto numWings = 0;
 					foreach (d; Direction.init .. enumLength!Direction)
@@ -250,7 +272,7 @@ Level loadLevel(string fileName)
 						auto dy = y + dirY[d];
 						if (level.map[dy][dx] == Tile.free)
 						{
-							auto dTile = level.decode!Cell(level.initialState[varNameCell(dx, dy)]);
+							auto dTile = level.decode!Cell(level.initialState[level.varNameCell[dy][dx]]);
 							if (dTile.type == Cell.Type.turnstile && dTile.turnstile.thisDirection == d)
 								numWings++;
 						}

@@ -2,6 +2,7 @@ module common;
 
 import std.bitmanip;
 import std.conv : to;
+import std.traits;
 
 import ae.utils.meta : enumLength;
 
@@ -23,27 +24,17 @@ Direction opposite(Direction d) { return cast(Direction)((d + 2) % 4); }
 immutable byte[enumLength!Direction] dirX = [1, 0, -1, 0];
 immutable byte[enumLength!Direction] dirY = [0, -1, 0, 1];
 
-// TODO: I think both of these can be packed to one byte each:
-// - VarName can be packed by exploiting that levels have at most about 64 non-wall tiles.
-//   Then, Level.map can specify the VarName corresponding to that tile.
-// - VarValue can be packed by exploiting that there are only 12 unique block shapes in the entire game,
-//   and their area adds up to 56, so 56 values are enough to uniquely indicate both the block shape and the coordinate within the block.
-
-enum VarName : uint
+enum VarName : ubyte
 {
-	justSwitched,
+	first = 0,
+	invalid = 0xFF,
 
-	character0Coord,
-
-	cell00 = character0Coord + maxCharacters,
-
-	tempVarStart = cell00 + (maxWidth * maxHeight),
-	tempVarEnd = tempVarStart + 100,
+	tempVarStart = 0xF0,
+	tempVarEnd = 0xFF,
 	length = tempVarEnd,
 }
 
-VarName varNameCharacterCoord(uint characterIndex) { return cast(VarName)(VarName.character0Coord + characterIndex); }
-VarName varNameCell(size_t x, size_t y) { return cast(VarName)(VarName.cell00 + y * maxWidth + x); }
+enum invalidVarName = VarName.invalid;
 
 alias VarValue = ubyte;
 
@@ -110,7 +101,24 @@ struct Level
 
 	ubyte numCharacters;
 
-	VarValue[VarName.length] initialState = invalidVarValue;
+	// ---
+
+	VarName varNameJustSwitched = invalidVarName;
+
+	VarName[maxCharacters] varNameCharacterCoord = invalidVarName;
+	VarName[maxHeight][maxWidth] varNameCell = invalidVarName;
+
+	size_t numVars = 0;
+	VarName registerVariable()
+	{
+		auto n = cast(VarName)(numVars++).to!(OriginalType!VarName);
+		assert(n < VarName.tempVarStart, "Too many variables");
+		return n;
+	}
+
+	// ---
+
+	VarValue[/*varNameCard*/] initialState;
 
 	// ---
 

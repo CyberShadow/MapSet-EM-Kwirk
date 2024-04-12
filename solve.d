@@ -16,9 +16,8 @@ void program(
 	auto level = loadLevel(levelFileName);
 
 	StateSet initialSet = StateSet.unitSet;
-	foreach (VarName name, VarValue value; level.initialState)
-		if (value != VarValue.init)
-			initialSet = initialSet.set(name, value);
+	foreach (name, VarValue value; level.initialState)
+		initialSet = initialSet.set(cast(VarName)name, value);
 
 	StateSet[] statesAtFrame = [initialSet];
 	StateSet seenStates;
